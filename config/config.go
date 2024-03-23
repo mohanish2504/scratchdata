@@ -5,13 +5,16 @@ type Logging struct {
 	Level      string `yaml:"level"`
 }
 
+type Prometheus struct {
+	Enabled  bool   `yaml:"enabled"`
+	Port     int    `yaml:"port"`
+	Username string `yaml:"username"`
+	Password string `yaml:"password"`
+}
+
 type API struct {
-	Enabled bool `yaml:"enabled" env:"SCRATCH_API_ENABLED"`
-	Port    int  `yaml:"port"`
-	// DataDirectory          string
-	// FreeSpaceRequiredBytes int64
-	MaxAgeSeconds       int    `yaml:"max_age_seconds"`
-	MaxSizeBytes        int64  `yaml:"max_size_bytes"`
+	Enabled             bool   `yaml:"enabled" env:"SCRATCH_API_ENABLED"`
+	Port                int    `yaml:"port"`
 	HealthCheckFailFile string `yaml:"healthcheck_fail_file"`
 }
 
@@ -43,9 +46,11 @@ type BlobStore struct {
 }
 
 type Destination struct {
-	Type     string         `yaml:"type"`
-	Settings map[string]any `yaml:"settings"`
-	APIKeys  []string       `yaml:"api_keys"`
+	ID       int64          `yaml:"id" json:"id"`
+	Type     string         `yaml:"type" json:"type"`
+	Name     string         `yaml:"name" json:"name"`
+	Settings map[string]any `yaml:"settings" json:"settings"`
+	APIKeys  []string       `yaml:"api_keys" json:"api_keys"`
 }
 
 type DataSink struct {
@@ -55,6 +60,10 @@ type DataSink struct {
 
 type CryptoConfig struct {
 	JWTPrivateKey string `yaml:"jwt_private_key"`
+}
+
+type APIKey struct {
+	Key string `yaml:"key"`
 }
 
 type ScratchDataConfig struct {
@@ -67,6 +76,8 @@ type ScratchDataConfig struct {
 	Database     Database      `yaml:"database"`
 	BlobStore    BlobStore     `yaml:"blob_store"`
 	Destinations []Destination `yaml:"destinations"`
+	APIKeys      []APIKey      `yaml:"api_keys"`
+	Prometheus   Prometheus    `yaml:"prometheus"`
 
 	Crypto CryptoConfig `yaml:"crypto"`
 }

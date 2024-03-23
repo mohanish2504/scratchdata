@@ -1,15 +1,30 @@
 package api
 
 import (
+	"context"
 	"io"
 	"net/http"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/rs/zerolog/log"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 )
+
+var insertSize = promauto.NewHistogram(prometheus.HistogramOpts{
+	Name:    "insert_bytes",
+	Help:    "Bytes inserted in single request",
+	Buckets: prometheus.ExponentialBucketsRange(1000, 100_000_000, 5),
+})
+
+var insertArraySize = promauto.NewHistogram(prometheus.HistogramOpts{
+	Name:    "insert_array_length",
+	Help:    "Items in single request",
+	Buckets: prometheus.LinearBuckets(1, 50, 10),
+})
 
 func (a *ScratchDataAPIStruct) Select(w http.ResponseWriter, r *http.Request) {
 	databaseID := a.AuthGetDatabaseID(r.Context())
@@ -35,26 +50,24 @@ func (a *ScratchDataAPIStruct) Select(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	dest, err := a.destinationManager.Destination(databaseID)
+	if err := a.executeQueryAndStreamData(r.Context(), w, query, databaseID, format); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+}
+
+func (a *ScratchDataAPIStruct) executeQueryAndStreamData(ctx context.Context, w http.ResponseWriter, query string, databaseID int64, format string) error {
+	dest, err := a.destinationManager.Destination(ctx, databaseID)
 	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		w.Write([]byte("Unable to connect to database"))
-		return
+		return err
 	}
 
 	switch strings.ToLower(format) {
 	case "csv":
 		w.Header().Set("Content-Type", "text/csv")
-		err = dest.QueryCSV(query, w)
+		return dest.QueryCSV(query, w)
 	default:
 		w.Header().Set("Content-Type", "application/json")
-		err = dest.QueryJSON(query, w)
-	}
-
-	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		w.Write([]byte(err.Error()))
-		return
+		return dest.QueryJSON(query, w)
 	}
 }
 
@@ -71,6 +84,8 @@ func (a *ScratchDataAPIStruct) Insert(w http.ResponseWriter, r *http.Request) {
 	}
 
 	body, err := io.ReadAll(r.Body)
+	insertSize.Observe(float64(len(body)))
+
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		w.Write([]byte("Unable to read data"))
@@ -87,6 +102,8 @@ func (a *ScratchDataAPIStruct) Insert(w http.ResponseWriter, r *http.Request) {
 
 	parsed.IsArray()
 	lines := parsed.Array()
+
+	insertArraySize.Observe(float64(len(lines)))
 
 	errorItems := map[int]bool{}
 	for i, line := range lines {

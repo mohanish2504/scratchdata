@@ -2,9 +2,16 @@ logging:
   json_format: false
   level: trace
 
+prometheus:
+  enabled: true
+  port: 2112
+
 api:
   enabled: true
   port: 8080
+
+api_keys:
+  - key: admin
 
 workers:
   enabled: true
@@ -18,6 +25,9 @@ data_sink:
   type: memory
 
 queue:
+  type: memory
+
+cache:
   type: memory
 
 database:

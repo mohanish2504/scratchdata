@@ -2,6 +2,8 @@ package scratchdata
 
 import (
 	"context"
+	"fmt"
+	"net/http"
 	"os"
 	"os/signal"
 	"strconv"
@@ -9,12 +11,15 @@ import (
 	"syscall"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
 	"github.com/scratchdata/scratchdata/models"
 	"github.com/scratchdata/scratchdata/pkg/datasink"
 	"github.com/scratchdata/scratchdata/pkg/destinations"
 	"github.com/scratchdata/scratchdata/pkg/storage/blobstore"
+	"github.com/scratchdata/scratchdata/pkg/storage/cache"
 	"github.com/scratchdata/scratchdata/pkg/storage/queue"
 
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"github.com/scratchdata/scratchdata/config"
@@ -80,10 +85,13 @@ func GetStorageServices(c config.ScratchDataConfig) (*models.StorageServices, er
 	}
 	rc.Queue = queue
 
-	// TODO: implement cache if we need it
-	rc.Cache = nil
+	cache, err := cache.NewCache(c.Cache)
+	if err != nil {
+		return nil, err
+	}
+	rc.Cache = cache
 
-	db := database.NewDatabaseConnection(c.Database, c.Destinations)
+	db := database.NewDatabaseConnection(c.Database, c.Destinations, c.APIKeys)
 	rc.Database = db
 
 	return rc, nil
@@ -148,6 +156,19 @@ func Run(config config.ScratchDataConfig, storageServices *models.StorageService
 		// Cancel the context, signaling all goroutines to shut down
 		cancel()
 	}()
+
+	if config.Prometheus.Enabled {
+		go func() {
+			r := chi.NewRouter()
+
+			if config.Prometheus.Username != "" {
+				r.Use(middleware.BasicAuth("", map[string]string{config.Prometheus.Username: config.Prometheus.Password}))
+			}
+
+			r.Handle("/metrics", promhttp.Handler())
+			http.ListenAndServe(fmt.Sprintf(":%d", config.Prometheus.Port), r)
+		}()
+	}
 
 	// Wait for all goroutines to finish
 	wg.Wait()
